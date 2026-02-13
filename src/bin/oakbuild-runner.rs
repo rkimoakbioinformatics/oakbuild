@@ -10,6 +10,8 @@ enum ShellKind {
     Bash,
     Sh,
     Zsh,
+    Python,
+    Python3,
 }
 
 impl ShellKind {
@@ -18,6 +20,8 @@ impl ShellKind {
             ShellKind::Bash => "bash",
             ShellKind::Sh => "sh",
             ShellKind::Zsh => "zsh",
+            ShellKind::Python => "python",
+            ShellKind::Python3 => "python3",
         }
     }
 
@@ -26,6 +30,8 @@ impl ShellKind {
             "bash" => Some(ShellKind::Bash),
             "sh" => Some(ShellKind::Sh),
             "zsh" => Some(ShellKind::Zsh),
+            "python" => Some(ShellKind::Python),
+            "python3" => Some(ShellKind::Python3),
             _ => None,
         }
     }
@@ -48,6 +54,7 @@ struct VerifyArgs {
 enum ParsedCommand {
     Verify(VerifyArgs),
     Show,
+    Version,
     Run(RunArgs),
     Help(Option<String>),
     ShortVersion,
@@ -77,6 +84,9 @@ fn detect_shell_from_shebang(payload: &[u8]) -> Option<ShellKind> {
         "bash" => Some(ShellKind::Bash),
         "sh" => Some(ShellKind::Sh),
         "zsh" => Some(ShellKind::Zsh),
+        "python" => Some(ShellKind::Python),
+        t if t.starts_with("python3") => Some(ShellKind::Python3),
+        t if t.starts_with("python") => Some(ShellKind::Python),
         _ => None,
     }
 }
@@ -90,7 +100,7 @@ fn program_name_from_path(path: &str) -> String {
 
 fn main_help_text(prog: &str) -> String {
     format!(
-        "Verify and run an embedded shell script
+        "Verify and run an embedded script
 
 Usage: {prog} [OPTIONS] [-- <SCRIPT_ARGS>...]
        {prog} <COMMAND>
@@ -98,6 +108,7 @@ Usage: {prog} [OPTIONS] [-- <SCRIPT_ARGS>...]
 Commands:
   verify
   show
+  version
   help    Print this message or the help of the given subcommand(s)
 
 Arguments:
@@ -106,7 +117,7 @@ Arguments:
 Options:
       --continue-on-error
       --trace
-      --shell <SHELL>      [possible values: bash, sh, zsh]
+      --shell <SHELL>      [possible values: bash, sh, zsh, python, python3]
   -h, --help               Print help
   -V                       Print short version
       --version            Print long version"
@@ -120,7 +131,7 @@ fn short_version_text() -> String {
 fn long_version_text() -> String {
     format!(
         "{} {}
-Runtime for embedded shell payloads
+Runtime for embedded script payloads
 By Oak Bioinformatics (https://oakbioinformatics.com)
 For bioinformatics systems development, contact info@oakbioinformatics.com",
         env!("CARGO_PKG_NAME"),
@@ -147,9 +158,20 @@ Options:
     )
 }
 
+fn version_help_text(prog: &str) -> String {
+    format!(
+        "Usage: {prog} version
+
+Options:
+  -h, --help             Print help"
+    )
+}
+
 fn parse_shell_arg(value: &str) -> Result<ShellKind, String> {
     ShellKind::parse(value).ok_or_else(|| {
-        format!("invalid value '{value}' for '--shell' [possible values: bash, sh, zsh]")
+        format!(
+            "invalid value '{value}' for '--shell' [possible values: bash, sh, zsh, python, python3]"
+        )
     })
 }
 
@@ -240,7 +262,33 @@ fn parse_cli(args: &[String]) -> Result<ParsedCommand, String> {
                 Ok(ParsedCommand::Show)
             }
         }
+        "version" => {
+            if args.len() == 2 && (args[1] == "-h" || args[1] == "--help") {
+                Ok(ParsedCommand::Help(Some("version".to_string())))
+            } else if args.len() > 1 {
+                Err(format!("unexpected argument '{}'", args[1]))
+            } else {
+                Ok(ParsedCommand::Version)
+            }
+        }
         _ => parse_run_args(args),
+    }
+}
+
+fn validate_runtime_options(shell: ShellKind, run: &RunArgs) -> Result<(), String> {
+    match shell {
+        ShellKind::Python | ShellKind::Python3 => {
+            if run.continue_on_error {
+                return Err(
+                    "'--continue-on-error' is only supported for shell payloads".to_string()
+                );
+            }
+            if run.trace {
+                return Err("'--trace' is only supported for shell payloads".to_string());
+            }
+            Ok(())
+        }
+        ShellKind::Bash | ShellKind::Sh | ShellKind::Zsh => Ok(()),
     }
 }
 
@@ -404,12 +452,25 @@ source /dev/fd/3
                     ShellKind::Zsh => {
                         payload_to_run.splice(0..0, b"PS4='%i: '\nset -x\n".iter().copied());
                     }
-                    ShellKind::Bash => {}
+                    ShellKind::Bash | ShellKind::Python | ShellKind::Python3 => {}
                 }
             }
             cmd.arg("-c")
                 .arg("__PAYLOAD=$(cat); eval \"$__PAYLOAD\"")
                 .arg(script_name.clone());
+        }
+        ShellKind::Python | ShellKind::Python3 => {
+            let driver = r#"
+import sys
+code = sys.stdin.read()
+globals_dict = {
+    "__name__": "__main__",
+    "__file__": sys.argv[0],
+    "__package__": None,
+}
+exec(compile(code, sys.argv[0], "exec"), globals_dict)
+"#;
+            cmd.arg("-c").arg(driver).arg(script_name.clone());
         }
     }
 
@@ -465,6 +526,7 @@ fn main() -> io::Result<()> {
                 None => main_help_text(&prog),
                 Some("verify") => verify_help_text(&prog),
                 Some("show") => show_help_text(&prog),
+                Some("version") => version_help_text(&prog),
                 Some(other) => {
                     eprintln!("error: unrecognized subcommand '{other}'");
                     std::process::exit(2);
@@ -488,6 +550,18 @@ fn main() -> io::Result<()> {
                 Some((payload, _footer)) => {
                     let text = String::from_utf8_lossy(&payload);
                     print!("{}", text);
+                }
+            }
+        }
+        ParsedCommand::Version => {
+            let exe = env::current_exe()?;
+            match try_read_footer_and_payload(&exe)? {
+                None => {
+                    println!("No attached script payload found.");
+                    std::process::exit(1);
+                }
+                Some((_payload, footer)) => {
+                    println!("{}", hex::encode(footer.sha256));
                 }
             }
         }
@@ -550,6 +624,10 @@ fn main() -> io::Result<()> {
                 .shell
                 .or(detect_shell_from_shebang(&payload))
                 .unwrap_or(ShellKind::Bash);
+            if let Err(err) = validate_runtime_options(shell, &run) {
+                eprintln!("error: {err}");
+                std::process::exit(2);
+            }
 
             let code = run_payload(
                 &payload,

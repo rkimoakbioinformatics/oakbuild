@@ -41,7 +41,7 @@ fn program_name_from_path(path: &str) -> String {
 
 fn main_help_text(prog: &str) -> String {
     format!(
-        "Convert a shell script into a self-contained signed executable
+        "Convert a script into a self-contained signed executable
 
 Usage: {prog} --script <SCRIPT> --out <OUT> [OPTIONS]
 

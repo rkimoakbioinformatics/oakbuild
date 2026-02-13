@@ -1,9 +1,11 @@
 # oakbuild
 
-`oakbuild` converts shell scripts into signed binaries.
+`oakbuild` converts scripts into signed binaries.
 
-For example, it can generate a `myscript` binary from the `myscript.sh` script.
-Running `myscript` does the same thing as running `myscript.sh`.
+For example, it can generate a `myscript` binary from `myscript.sh` or `myscript.py`.
+Running `myscript` does the same thing as running the source script.
+
+`oakbuild` currently supports shell and Python scripts.
 
 Using a binary instead of a script has the following advantages:
 
@@ -49,7 +51,8 @@ Then run the script with the binary:
 
 Use `--continue-on-error` to keep running after a command fails.
 The `--trace` option shows each command line as it executes.
-The shell is detected from the embedded script's shebang line, but you can override it with `--shell` (`sh`, `bash`, and `zsh` are supported).
+The runtime is detected from the embedded script's shebang line, but you can override it with `--shell` (`sh`, `bash`, `zsh`, `python`, and `python3` are supported).
+`--continue-on-error` and `--trace` apply only to shell payloads.
 
 You can verify a binary with:
 
@@ -61,6 +64,12 @@ For detailed verification output:
 
 ```bash
 ./myscript verify --verbose
+```
+
+To print the embedded script version (SHA-256):
+
+```bash
+./myscript version
 ```
 
 To see the embedded script content:
