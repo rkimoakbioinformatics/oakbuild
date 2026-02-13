@@ -1,0 +1,44 @@
+[package]
+name = "oakbuild"
+version = "1.0.0"
+edition = "2024"
+build = "build.rs"
+autobins = false
+license = "MIT"
+description = "oakbuild converts shell scripts into signed binaries."
+repository = "https://github.com/rkimoakbioinformatics/oakbuild"
+homepage = "https://github.com/rkimoakbioinformatics/oakbuild"
+keywords = ["cli", "script", "workflow", "signing"]
+categories = ["command-line-utilities"]
+include = ["src/**", "Cargo.toml", "README.md", "LICENSE", "build.rs"]
+
+[features]
+default = []
+internal-runner = []
+
+[[bin]]
+name = "oakbuild"
+path = "src/main.rs"
+
+[[bin]]
+name = "oakbuild-runner"
+path = "src/bin/oakbuild-runner.rs"
+required-features = ["internal-runner"]
+
+[dependencies]
+sha2 = { version = "0.10", features = ["oid"] }
+ed25519-dalek = { version = "2", features = ["pkcs8", "pem"] }
+rsa = "0.9"
+hex = "0.4"
+base64 = "0.22"
+dirs = "5"
+serde = { version = "1", features = ["derive"] }
+toml = "0.8"
+
+[profile.release]
+opt-level = "z"
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true
+debug = false
