@@ -51,6 +51,65 @@ jobs:
       - name: Build release binary
         run: cargo build --release --bin oakbuild --target ${{ matrix.target }}
 
+      - name: Import Apple signing certificate
+        if: contains(matrix.target, 'apple-darwin')
+        shell: bash
+        env:
+          APPLE_CERTIFICATE_P12_BASE64: ${{ secrets.APPLE_CERTIFICATE_P12_BASE64 }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_KEYCHAIN_PASSWORD: ${{ secrets.APPLE_KEYCHAIN_PASSWORD }}
+        run: |
+          if [[ -z "${APPLE_CERTIFICATE_P12_BASE64}" || -z "${APPLE_CERTIFICATE_PASSWORD}" || -z "${APPLE_KEYCHAIN_PASSWORD}" ]]; then
+            echo "Missing required secrets for Apple signing."
+            exit 1
+          fi
+
+          KEYCHAIN_PATH="${RUNNER_TEMP}/app-signing.keychain-db"
+          CERT_PATH="${RUNNER_TEMP}/apple-signing-cert.p12"
+
+          echo "${APPLE_CERTIFICATE_P12_BASE64}" | base64 --decode > "${CERT_PATH}"
+
+          security create-keychain -p "${APPLE_KEYCHAIN_PASSWORD}" "${KEYCHAIN_PATH}"
+          security set-keychain-settings -lut 21600 "${KEYCHAIN_PATH}"
+          security unlock-keychain -p "${APPLE_KEYCHAIN_PASSWORD}" "${KEYCHAIN_PATH}"
+          security list-keychains -d user -s "${KEYCHAIN_PATH}"
+          security default-keychain -d user -s "${KEYCHAIN_PATH}"
+          security import "${CERT_PATH}" -k "${KEYCHAIN_PATH}" -P "${APPLE_CERTIFICATE_PASSWORD}" -T /usr/bin/codesign -T /usr/bin/security
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "${APPLE_KEYCHAIN_PASSWORD}" "${KEYCHAIN_PATH}"
+
+      - name: Codesign macOS binary
+        if: contains(matrix.target, 'apple-darwin')
+        shell: bash
+        env:
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+        run: |
+          if [[ -z "${APPLE_SIGNING_IDENTITY}" ]]; then
+            echo "Missing required secret: APPLE_SIGNING_IDENTITY"
+            exit 1
+          fi
+
+          BIN_PATH="target/${{ matrix.target }}/release/oakbuild"
+          codesign --force --options runtime --timestamp --sign "${APPLE_SIGNING_IDENTITY}" "${BIN_PATH}"
+          codesign --verify --strict --verbose=2 "${BIN_PATH}"
+
+      - name: Notarize macOS binary
+        if: contains(matrix.target, 'apple-darwin')
+        shell: bash
+        env:
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+        run: |
+          if [[ -z "${APPLE_ID}" || -z "${APPLE_TEAM_ID}" || -z "${APPLE_APP_SPECIFIC_PASSWORD}" ]]; then
+            echo "Missing required secrets for Apple notarization."
+            exit 1
+          fi
+
+          BIN_PATH="target/${{ matrix.target }}/release/oakbuild"
+          NOTARIZE_ZIP="${RUNNER_TEMP}/oakbuild-${{ matrix.target }}-notarize.zip"
+          ditto -c -k --keepParent "${BIN_PATH}" "${NOTARIZE_ZIP}"
+          xcrun notarytool submit "${NOTARIZE_ZIP}" --apple-id "${APPLE_ID}" --team-id "${APPLE_TEAM_ID}" --password "${APPLE_APP_SPECIFIC_PASSWORD}" --wait
+
       - name: Prepare release asset
         shell: bash
         run: |
@@ -69,3 +128,12 @@ jobs:
         with:
           files: ${{ env.ASSET_PATH }}
           fail_on_unmatched_files: true
+
+      - name: Cleanup Apple signing keychain
+        if: always() && contains(matrix.target, 'apple-darwin')
+        shell: bash
+        run: |
+          KEYCHAIN_PATH="${RUNNER_TEMP}/app-signing.keychain-db"
+          if [[ -f "${KEYCHAIN_PATH}" ]]; then
+            security delete-keychain "${KEYCHAIN_PATH}" || true
+          fi
