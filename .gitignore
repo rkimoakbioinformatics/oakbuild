@@ -2,3 +2,5 @@
 Cargo.lock
 myscript.sh
 myscript
+pybin
+test_py.py

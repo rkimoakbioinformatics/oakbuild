@@ -26,14 +26,14 @@ path = "src/bin/oakbuild-runner.rs"
 required-features = ["internal-runner"]
 
 [dependencies]
-sha2 = { version = "0.10", features = ["oid"] }
+sha2 = { version = "0", features = ["oid"] }
 ed25519-dalek = { version = "2", features = ["pkcs8", "pem"] }
-rsa = "0.9"
-hex = "0.4"
-base64 = "0.22"
-dirs = "5"
+rsa = "0"
+hex = "0"
+base64 = "0"
+dirs = "6"
 serde = { version = "1", features = ["derive"] }
-toml = "0.8"
+toml = "1"
 
 [profile.release]
 opt-level = "z"
