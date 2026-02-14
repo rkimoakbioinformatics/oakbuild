@@ -19,6 +19,10 @@ you shared with them.
 
 ## Install
 
+Download the release bundle at https://github.com/rkimoakbioinformatics/oakbuild/releases.
+
+Or, use `cargo install`:
+
 ```bash
 cargo install oakbuild
 ```
