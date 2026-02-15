@@ -1,5 +1,7 @@
 # oakbuild
 
+<img src="static/logo.png" alt="logo" width="300" />
+
 `oakbuild` converts scripts into signed binaries.
 
 For example, it can generate a `myscript` binary from `myscript.sh` or `myscript.py`.
